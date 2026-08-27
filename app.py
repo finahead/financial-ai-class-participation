@@ -43,23 +43,25 @@ def init_db():
 
         # v1에서 만들어진 기존 SQLite DB가 남아 있을 수 있으므로
         # INSERT보다 먼저 스키마를 현재 버전에 맞춘다.
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(app_state)").fetchall()]
-        if "display_mode" not in cols:
-            conn.execute(
-                "ALTER TABLE app_state ADD COLUMN display_mode TEXT NOT NULL DEFAULT 'waiting'"
-            )
-        if "current_case" not in cols:
-            conn.execute(
-                "ALTER TABLE app_state ADD COLUMN current_case INTEGER NOT NULL DEFAULT 0"
-            )
-        if "phase" not in cols:
-            conn.execute(
-                "ALTER TABLE app_state ADD COLUMN phase TEXT NOT NULL DEFAULT 'pre'"
-            )
-        if "updated_at" not in cols:
-            conn.execute(
-                "ALTER TABLE app_state ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
-            )
+        # Streamlit에서는 여러 브라우저 세션이 동시에 시작될 수 있어
+        # 두 세션이 동시에 같은 컬럼을 추가하려는 race condition이 발생할 수 있다.
+        # 각 ALTER TABLE을 개별적으로 시도하고, 이미 추가된 컬럼이면 안전하게 무시한다.
+        def ensure_column(column_name, column_sql):
+            cols_now = [r[1] for r in conn.execute("PRAGMA table_info(app_state)").fetchall()]
+            if column_name in cols_now:
+                return
+            try:
+                conn.execute(f"ALTER TABLE app_state ADD COLUMN {column_sql}")
+                conn.commit()
+            except sqlite3.OperationalError as e:
+                # 다른 세션이 직전에 같은 컬럼을 추가했으면 duplicate column 오류가 날 수 있음
+                if "duplicate column name" not in str(e).lower():
+                    raise
+
+        ensure_column("display_mode", "display_mode TEXT NOT NULL DEFAULT 'waiting'")
+        ensure_column("current_case", "current_case INTEGER NOT NULL DEFAULT 0")
+        ensure_column("phase", "phase TEXT NOT NULL DEFAULT 'pre'")
+        ensure_column("updated_at", "updated_at TEXT NOT NULL DEFAULT ''")
 
         conn.execute("""
             INSERT OR IGNORE INTO app_state
