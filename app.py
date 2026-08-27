@@ -199,10 +199,41 @@ def register_nickname():
             conn.commit()
 
         st.session_state.nickname = clean
+        st.session_state.show_welcome = True
         st.rerun()
 
     st.stop()
 
+
+
+def render_welcome_screen(nickname):
+    st.markdown(
+        f"""
+        <div style="
+            padding: 2.2rem 1.5rem;
+            text-align: center;
+            border-radius: 18px;
+            background: #f6f8fb;
+            border: 1px solid #e7eaf0;
+            margin: 1rem 0 1.5rem 0;
+        ">
+            <div style="font-size: 1.15rem; color: #6b7280; margin-bottom: .5rem;">
+                참여자 입장 완료
+            </div>
+            <div style="font-size: 3.2rem; font-weight: 800; line-height: 1.15; color: #1f2937;">
+                {nickname} 님
+            </div>
+            <div style="font-size: 1.35rem; margin-top: .8rem; color: #374151;">
+                반갑습니다. 오늘 금융 AI 사례에 함께 참여합니다.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("참여 시작하기", type="primary", use_container_width=True):
+        st.session_state.show_welcome = False
+        st.rerun()
+    st.stop()
 
 def get_state():
     with db_conn() as conn:
@@ -361,8 +392,12 @@ def participant_view():
     login_gate()
     nickname = register_nickname()
 
+    if st.session_state.get("show_welcome", False):
+        render_welcome_screen(nickname)
+
     st.title("금융 AI 사례 · 실시간 참여")
-    st.caption(f"참여자: **{nickname}**  |  전체 접속: **{participant_count()}명**")
+    st.markdown(f"### 👋 **{nickname} 님**, 참여 중입니다.")
+    st.caption(f"전체 접속: **{participant_count()}명**")
     st.divider()
 
     participant_live_area(nickname)
@@ -386,6 +421,20 @@ def admin_auth():
             st.error("비밀번호가 맞지 않습니다.")
     st.stop()
 
+
+
+def recent_participants(limit=5):
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT nickname, joined_at
+            FROM participants
+            ORDER BY joined_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return rows
 
 def responses_df():
     with db_conn() as conn:
@@ -421,6 +470,29 @@ def admin_view():
         "results": "결과 공개",
     }.get(state["display_mode"], state["display_mode"])
     m3.metric("참여자 화면", mode_label)
+
+    recent = recent_participants(5)
+    if recent:
+        latest_name = recent[0][0]
+        st.markdown("### 👋 방금 입장")
+        st.markdown(
+            f"""
+            <div style="
+                padding: 1.35rem 1.5rem;
+                border-radius: 16px;
+                background: #f6f8fb;
+                border: 1px solid #e7eaf0;
+                margin-bottom: .7rem;
+            ">
+                <div style="font-size: 2.4rem; font-weight: 800; color: #1f2937;">
+                    {latest_name}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        names = " · ".join([r[0] for r in recent])
+        st.caption(f"최근 입장: {names}")
 
     st.divider()
     st.markdown("### 1. 질문 선택")
