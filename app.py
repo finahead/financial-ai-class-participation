@@ -40,16 +40,46 @@ def init_db():
                 updated_at TEXT NOT NULL
             )
         """)
+
+        # v1에서 만들어진 기존 SQLite DB가 남아 있을 수 있으므로
+        # INSERT보다 먼저 스키마를 현재 버전에 맞춘다.
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(app_state)").fetchall()]
+        if "display_mode" not in cols:
+            conn.execute(
+                "ALTER TABLE app_state ADD COLUMN display_mode TEXT NOT NULL DEFAULT 'waiting'"
+            )
+        if "current_case" not in cols:
+            conn.execute(
+                "ALTER TABLE app_state ADD COLUMN current_case INTEGER NOT NULL DEFAULT 0"
+            )
+        if "phase" not in cols:
+            conn.execute(
+                "ALTER TABLE app_state ADD COLUMN phase TEXT NOT NULL DEFAULT 'pre'"
+            )
+        if "updated_at" not in cols:
+            conn.execute(
+                "ALTER TABLE app_state ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
+            )
+
         conn.execute("""
             INSERT OR IGNORE INTO app_state
             (id, current_case, phase, display_mode, updated_at)
             VALUES (1, 0, 'pre', 'waiting', ?)
         """, (datetime.now().isoformat(timespec="seconds"),))
 
-        # 구버전 DB가 남아 있어도 동작하도록 컬럼 보정
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(app_state)").fetchall()]
-        if "display_mode" not in cols:
-            conn.execute("ALTER TABLE app_state ADD COLUMN display_mode TEXT NOT NULL DEFAULT 'waiting'")
+        # 기존 1번 상태행도 새 구조에 맞춰 기본값 보정
+        conn.execute("""
+            UPDATE app_state
+            SET current_case = COALESCE(current_case, 0),
+                phase = COALESCE(NULLIF(phase, ''), 'pre'),
+                display_mode = COALESCE(NULLIF(display_mode, ''), 'waiting'),
+                updated_at = CASE
+                    WHEN updated_at IS NULL OR updated_at = ''
+                    THEN ?
+                    ELSE updated_at
+                END
+            WHERE id = 1
+        """, (datetime.now().isoformat(timespec="seconds"),))
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS participants (
