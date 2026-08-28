@@ -689,7 +689,7 @@ def save_confirmation_ai_review(nickname, answer, review_text):
 
 
 def build_confirmation_review_prompt(answer):
-    facts = "\\n".join([f"- {x}" for x in CONFIRMATION_LAB["facts"]])
+    facts = "\n".join([f"- {x}" for x in CONFIRMATION_LAB["facts"]])
     return f"""
 당신은 금융회사 IT검사 확인서 작성 교육의 검토자입니다.
 아래 수강생 답안을 '제공된 사실관계만' 기준으로 검토하세요.
@@ -700,6 +700,8 @@ def build_confirmation_review_prompt(answer):
 - 추정이나 책임회피 표현을 사실처럼 쓰지 마세요.
 - 답안의 문장력보다 사실관계, 직접 원인, 통제 미흡, 고객 영향, 조치사항의 연결성을 우선 평가하세요.
 - 수정안에도 제공된 사실관계 외 내용을 추가하지 마세요.
+- 강의 화면에서 바로 읽을 수 있도록 짧고 명확하게 작성하세요.
+- 한줄 코멘트는 가볍게 웃을 수 있는 정도의 재치만 허용하고, 비꼬거나 사람을 평가하는 표현은 금지합니다.
 
 [사례]
 {CONFIRMATION_LAB["scenario"]}
@@ -713,27 +715,112 @@ def build_confirmation_review_prompt(answer):
 [수강생 답안]
 {answer}
 
-아래 형식으로 한국어로 답하세요.
+아래 형식을 반드시 지키세요.
 
-### 종합평가
-2~3문장으로 평가
+### 한줄평
+20~35자 정도의 짧고 기억에 남는 한 문장.
+예시 톤:
+- 사실은 잘 잡았는데, 직접 원인이 아직 숨어 있습니다.
+- 숫자는 정확합니다. 이제 왜 막지 못했는지만 잡으면 됩니다.
+- 문장은 자연스럽지만 검사관이 궁금해할 통제가 빠졌습니다.
 
-### 항목별 점검
-- 사실관계 정확성: 적정 / 보완 필요
-- 직접 원인 명확성: 적정 / 보완 필요
-- 통제 미흡 구체성: 적정 / 보완 필요
-- 고객 영향 반영: 적정 / 보완 필요
-- 조치사항 표현: 적정 / 보완 필요
-- 근거 없는 내용: 없음 / 있음
-- 책임회피·모호 표현: 없음 / 있음
+### 핵심평가
+- 사실관계: ● / △ / × 중 하나
+- 직접원인: ● / △ / × 중 하나
+- 통제미흡: ● / △ / × 중 하나
+- 고객영향: ● / △ / × 중 하나
+- 근거없는내용: 없음 / 있음
+- 책임회피표현: 없음 / 있음
 
-### 보완할 부분
-최대 5개. 각 항목은 '문제 → 왜 문제인지 → 어떻게 고칠지' 순서로 작성
+### 보완포인트
+딱 3개만 작성.
+각 항목은 한 줄, 35자 이내.
+1. ...
+2. ...
+3. ...
 
-### 수정 예시
+### 상세검토
+필요한 경우에만 읽을 수 있도록 5개 항목 이내의 짧은 설명.
+각 항목은 2문장 이내.
+
+### 수정예시
 수강생 답안의 장점을 최대한 유지하면서 확인서 전체 초안을 다시 작성.
 제공된 사실관계만 사용.
 """.strip()
+
+
+def parse_ai_review_sections(review_text):
+    sections = {
+        "한줄평": "",
+        "핵심평가": "",
+        "보완포인트": "",
+        "상세검토": "",
+        "수정예시": "",
+    }
+    current = None
+    lines = review_text.splitlines()
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("### "):
+            title = stripped[4:].strip()
+            if title in sections:
+                current = title
+                continue
+        if current:
+            sections[current] += line + "\n"
+    return {k: v.strip() for k, v in sections.items()}
+
+
+def render_ai_review_compact(review_text, expanded_details=False):
+    sections = parse_ai_review_sections(review_text)
+
+    one_liner = sections.get("한줄평", "")
+    if one_liner:
+        st.markdown(
+            f"""
+            <div style="
+                padding:1.0rem 1.15rem;
+                border-radius:14px;
+                background:#f3f7fb;
+                border:1px solid #dce6ef;
+                margin:.4rem 0 1rem 0;
+            ">
+                <div style="font-size:.9rem;color:#64748b;margin-bottom:.25rem;">🤖 AI 한줄평</div>
+                <div style="font-size:1.25rem;font-weight:800;line-height:1.45;">{one_liner}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    core = sections.get("핵심평가", "")
+    if core:
+        st.markdown("#### 핵심 평가")
+        # compact pill-like inline text instead of a long block
+        cleaned = []
+        for line in core.splitlines():
+            t = line.strip().lstrip("-").strip()
+            if t:
+                cleaned.append(t)
+        st.caption("   |   ".join(cleaned))
+
+    points = sections.get("보완포인트", "")
+    if points:
+        st.markdown("#### 보완 포인트")
+        for line in points.splitlines():
+            t = line.strip()
+            if t:
+                st.markdown(t)
+
+    details = sections.get("상세검토", "")
+    sample = sections.get("수정예시", "")
+    if details or sample:
+        with st.expander("상세 AI 검토 보기", expanded=expanded_details):
+            if details:
+                st.markdown("#### 상세검토")
+                st.markdown(details)
+            if sample:
+                st.markdown("#### 수정예시")
+                st.markdown(sample)
 
 
 def run_confirmation_ai_review(answer):
@@ -1128,7 +1215,7 @@ def participant_confirmation_area(nickname):
 
             review_row = get_confirmation_ai_review(nickname, saved[0])
             if review_row:
-                st.markdown(review_row[0])
+                render_ai_review_compact(review_row[0], expanded_details=False)
                 st.caption("※ 교육용 AI 검토 결과입니다. 최종 판단은 강의 해설과 함께 확인하세요.")
         else:
             st.caption(
@@ -1158,7 +1245,7 @@ def participant_confirmation_area(nickname):
                 review_row = get_confirmation_ai_review(spotlight, row[0])
                 if review_row:
                     st.markdown("### 🤖 AI 검토")
-                    st.markdown(review_row[0])
+                    render_ai_review_compact(review_row[0], expanded_details=False)
                     st.caption("※ 교육용 AI 검토 결과입니다. 최종 판단은 강의 해설과 함께 확인하세요.")
                 else:
                     st.info("이 답안은 아직 AI 검토가 생성되지 않았습니다.")
@@ -1499,8 +1586,8 @@ def render_confirmation_admin():
     if selected_row:
         review_row = get_confirmation_ai_review(selected, selected_row[0])
         if review_row:
-            with st.expander(f"🤖 {selected}님의 AI 검토 결과", expanded=True):
-                st.markdown(review_row[0])
+            st.markdown(f"### 🤖 {selected}님의 AI 검토 결과")
+            render_ai_review_compact(review_row[0], expanded_details=False)
         else:
             st.caption("아직 AI 검토가 없습니다. 먼저 'AI 검토 생성'을 눌러 주세요.")
 
