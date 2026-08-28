@@ -1192,7 +1192,7 @@ def render_exercise_admin():
             st.success(f"Q{ex_id} 입력화면을 열었습니다.")
             st.rerun()
     with c2:
-        if st.button("💬 제출 종료 · 답안 보기", use_container_width=True):
+        if st.button("💬 제출 종료 · 답안 보기", use_container_width=True, key="confirm_close_btn"):
             set_exercise_state(ex_id, "review", "")
             st.success(f"Q{ex_id} 제출을 종료했습니다.")
             st.rerun()
@@ -1254,7 +1254,7 @@ def render_confirmation_admin():
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        if st.button("▶ 확인서 실습 시작", type="primary", use_container_width=True):
+        if st.button("▶ 확인서 실습 시작", type="primary", use_container_width=True, key="confirm_start_btn"):
             set_state(0, "pre", "waiting")
             set_exercise_state(0, "waiting", "")
             set_confirmation_state("write", "")
@@ -1266,13 +1266,13 @@ def render_confirmation_admin():
             st.success("제출을 종료했습니다.")
             st.rerun()
     with c3:
-        if st.button("📘 강사 예시문 공개", use_container_width=True):
+        if st.button("📘 강사 예시문 공개", use_container_width=True, key="confirm_sample_btn"):
             current = get_confirmation_state()["spotlight_nickname"]
             set_confirmation_state("sample", current)
             st.success("강사 예시문을 공개했습니다.")
             st.rerun()
     with c4:
-        if st.button("⏸ 확인서 실습 대기", use_container_width=True):
+        if st.button("⏸ 확인서 실습 대기", use_container_width=True, key="confirm_wait_btn"):
             set_confirmation_state("waiting", "")
             st.success("확인서 실습을 대기 상태로 전환했습니다.")
             st.rerun()
@@ -1300,12 +1300,12 @@ def render_confirmation_admin():
 
     a1, a2 = st.columns(2)
     with a1:
-        if st.button("📺 선택 답안 전체 공개", use_container_width=True, key="confirmation_publish"):
+        if st.button("📺 선택 답안 전체 공개", use_container_width=True, key="confirmation_publish_btn"):
             set_confirmation_state("review", selected)
             st.success(f"{selected}님의 답안을 전체 공개했습니다.")
             st.rerun()
     with a2:
-        if st.button("공개 답안 숨기기", use_container_width=True, key="confirmation_hide"):
+        if st.button("공개 답안 숨기기", use_container_width=True, key="confirmation_hide_btn"):
             set_confirmation_state("review", "")
             st.success("공개 답안을 숨겼습니다.")
             st.rerun()
