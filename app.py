@@ -1154,6 +1154,14 @@ def participant_confirmation_area(nickname):
                     """,
                     unsafe_allow_html=True,
                 )
+
+                review_row = get_confirmation_ai_review(spotlight, row[0])
+                if review_row:
+                    st.markdown("### 🤖 AI 검토")
+                    st.markdown(review_row[0])
+                    st.caption("※ 교육용 AI 검토 결과입니다. 최종 판단은 강의 해설과 함께 확인하세요.")
+                else:
+                    st.info("이 답안은 아직 AI 검토가 생성되지 않았습니다.")
         else:
             st.info("진행자가 함께 볼 답안을 선택하고 있습니다.")
 
@@ -1461,24 +1469,40 @@ def render_confirmation_admin():
         key="confirmation_spotlight_select",
     )
 
-    a1, a2 = st.columns(2)
+    selected_row = get_confirmation_response(selected)
+
+    a1, a2, a3 = st.columns(3)
     with a1:
-        if st.button("📺 선택 답안 전체 공개", use_container_width=True, key="confirmation_publish_btn"):
-            set_confirmation_state("review", selected)
-            st.success(f"{selected}님의 답안을 전체 공개했습니다.")
-            st.rerun()
+        if st.button("🤖 AI 검토 생성", use_container_width=True, key="confirmation_admin_ai_review_btn"):
+            if selected_row:
+                with st.spinner(f"{selected}님의 확인서를 AI가 검토하고 있습니다..."):
+                    try:
+                        review = run_confirmation_ai_review(selected_row[0])
+                        save_confirmation_ai_review(selected, selected_row[0], review)
+                        st.success("AI 검토를 생성했습니다.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"AI 검토 중 오류가 발생했습니다: {e}")
+
     with a2:
+        if st.button("📺 답안+AI검토 전체 공개", use_container_width=True, key="confirmation_publish_btn"):
+            set_confirmation_state("review", selected)
+            st.success(f"{selected}님의 답안과 AI 검토를 전체 공개했습니다.")
+            st.rerun()
+
+    with a3:
         if st.button("공개 답안 숨기기", use_container_width=True, key="confirmation_hide_btn"):
             set_confirmation_state("review", "")
             st.success("공개 답안을 숨겼습니다.")
             st.rerun()
 
-    selected_row = get_confirmation_response(selected)
     if selected_row:
         review_row = get_confirmation_ai_review(selected, selected_row[0])
         if review_row:
-            with st.expander(f"🤖 {selected}님의 AI 검토 결과", expanded=False):
+            with st.expander(f"🤖 {selected}님의 AI 검토 결과", expanded=True):
                 st.markdown(review_row[0])
+        else:
+            st.caption("아직 AI 검토가 없습니다. 먼저 'AI 검토 생성'을 눌러 주세요.")
 
 
 def admin_view():
