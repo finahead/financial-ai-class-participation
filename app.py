@@ -657,6 +657,65 @@ def participant_exercise_area(nickname):
     return False
 
 
+
+@st.fragment(run_every=2)
+def shared_join_banner():
+    """
+    모든 참여자 화면에서 최근 입장자를 함께 보여준다.
+    최근 15초 안에 들어온 최대 3명을 표시하며 이후 자동으로 사라진다.
+    """
+    now = datetime.now()
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT nickname, joined_at
+            FROM participants
+            ORDER BY joined_at DESC
+            LIMIT 5
+            """
+        ).fetchall()
+
+    recent_names = []
+    for nickname, joined_at in rows:
+        try:
+            joined = datetime.fromisoformat(joined_at)
+            age = (now - joined).total_seconds()
+            if 0 <= age <= 15:
+                recent_names.append(nickname)
+        except Exception:
+            continue
+
+    recent_names = recent_names[:3]
+    if not recent_names:
+        return
+
+    if len(recent_names) == 1:
+        message = f"{recent_names[0]} 님이 참석했습니다"
+    else:
+        message = " · ".join(recent_names) + " 님이 참석했습니다"
+
+    st.markdown(
+        f"""
+        <div style="
+            padding: 1.4rem 1.2rem;
+            margin: .2rem 0 1.2rem 0;
+            text-align: center;
+            border-radius: 18px;
+            border: 1px solid #dbe5f0;
+            background: #f5f8fc;
+        ">
+            <div style="font-size: 1rem; color:#64748b; margin-bottom:.35rem;">
+                👋 방금 입장
+            </div>
+            <div style="font-size: 2.35rem; line-height:1.25; font-weight:800; color:#1f2937;">
+                {message}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def participant_view():
     login_gate()
     nickname = register_nickname()
@@ -667,6 +726,9 @@ def participant_view():
     st.title("금융 AI 사례 · 실시간 참여")
     st.markdown(f"### 👋 **{nickname} 님**, 참여 중입니다.")
     st.caption(f"전체 접속: **{participant_count()}명**")
+
+    # 새 참여자가 들어오면 모든 수강생 화면에 약 15초간 함께 표시
+    shared_join_banner()
     st.divider()
 
     if participant_exercise_area(nickname):
@@ -847,9 +909,6 @@ def admin_view():
         st.caption(f"최근 입장: {names}")
 
     st.divider()
-    render_exercise_admin()
-
-    st.divider()
     st.markdown("## 1·2교시 · 사례 사전질문")
     st.markdown("### 1. 질문 선택")
 
@@ -922,6 +981,10 @@ def admin_view():
         )
     else:
         st.caption("아직 제출된 응답이 없습니다.")
+
+
+    st.divider()
+    render_exercise_admin()
 
     st.divider()
     st.markdown("### 전체 응답 관리")
