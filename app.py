@@ -15,6 +15,36 @@ st.set_page_config(
 )
 
 
+st.markdown(
+    """
+    <style>
+      /* 노트북/프로젝터 화면에서 세로 공간을 절약 */
+      .block-container {
+          padding-top: 2.0rem;
+          padding-bottom: 2.0rem;
+          max-width: 1500px;
+      }
+      h1 { font-size: 2.35rem !important; }
+      h2 { font-size: 1.85rem !important; }
+      h3 { font-size: 1.35rem !important; }
+      div[data-testid="stMetricValue"] {
+          font-size: 1.7rem;
+      }
+
+      @media (max-width: 1100px) {
+          .block-container {
+              padding-left: 1.5rem;
+              padding-right: 1.5rem;
+          }
+          h1 { font-size: 2.0rem !important; }
+          h2 { font-size: 1.6rem !important; }
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 def get_secret(name: str, default=None):
     try:
         return st.secrets.get(name, default)
@@ -475,18 +505,28 @@ def participant_count():
 def render_results(case_id, phase):
     case = CASES[case_id]
     counts = get_counts(case_id, phase)
-    data = [{"응답": option, "인원": counts.get(option, 0)} for option in case["options"]]
-    df = pd.DataFrame(data).set_index("응답")
-    total = int(df["인원"].sum())
+    total = sum(counts.get(option, 0) for option in case["options"])
 
     st.markdown(f"### 전체 응답 결과 · {total}명")
-    st.bar_chart(df, horizontal=True, use_container_width=True)
 
-    cols = st.columns(4)
-    for idx, option in enumerate(case["options"]):
+    # 좁은 노트북 화면에서도 잘리지 않도록 Streamlit 기본 차트 대신
+    # 간결한 진행바 형태로 결과를 표시한다.
+    for option in case["options"]:
         count = counts.get(option, 0)
         pct = (count / total * 100) if total else 0
-        cols[idx].metric(option, f"{count}명", f"{pct:.0f}%")
+
+        left, right = st.columns([5, 1])
+        with left:
+            st.markdown(f"**{option}**")
+            st.progress(pct / 100 if total else 0)
+        with right:
+            st.markdown(
+                f"<div style='text-align:right;padding-top:.15rem;'>"
+                f"<b>{count}명</b><br>"
+                f"<span style='color:#64748b;font-size:.9rem;'>{pct:.0f}%</span>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
 
 @st.fragment(run_every=2)
