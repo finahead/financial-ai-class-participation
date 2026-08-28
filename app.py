@@ -1,10 +1,12 @@
 
 import sqlite3
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+from openai import OpenAI
 
 DB_PATH = Path("/tmp/financial_ai_participation.db")
 
@@ -177,6 +179,14 @@ def init_db():
                 nickname TEXT PRIMARY KEY,
                 answer TEXT NOT NULL,
                 answered_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS confirmation_ai_reviews (
+                nickname TEXT PRIMARY KEY,
+                answer_hash TEXT NOT NULL,
+                review_text TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL
             )
         """)
         conn.commit()
@@ -636,6 +646,113 @@ def get_confirmation_responses():
         ).fetchall()
 
 
+
+def confirmation_answer_hash(answer):
+    return hashlib.sha256(answer.encode("utf-8")).hexdigest()
+
+
+def get_confirmation_ai_review(nickname, answer):
+    answer_hash = confirmation_answer_hash(answer)
+    with db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT review_text, reviewed_at
+            FROM confirmation_ai_reviews
+            WHERE nickname=? AND answer_hash=?
+            """,
+            (nickname, answer_hash),
+        ).fetchone()
+    return row
+
+
+def save_confirmation_ai_review(nickname, answer, review_text):
+    with db_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO confirmation_ai_reviews
+            (nickname, answer_hash, review_text, reviewed_at)
+            VALUES(?,?,?,?)
+            ON CONFLICT(nickname)
+            DO UPDATE SET
+                answer_hash=excluded.answer_hash,
+                review_text=excluded.review_text,
+                reviewed_at=excluded.reviewed_at
+            """,
+            (
+                nickname,
+                confirmation_answer_hash(answer),
+                review_text,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+        conn.commit()
+
+
+def build_confirmation_review_prompt(answer):
+    facts = "\\n".join([f"- {x}" for x in CONFIRMATION_LAB["facts"]])
+    return f"""
+당신은 금융회사 IT검사 확인서 작성 교육의 검토자입니다.
+아래 수강생 답안을 '제공된 사실관계만' 기준으로 검토하세요.
+
+[절대 원칙]
+- 제공되지 않은 사실을 새로 만들지 마세요.
+- 법규 위반 여부를 단정하지 마세요.
+- 추정이나 책임회피 표현을 사실처럼 쓰지 마세요.
+- 답안의 문장력보다 사실관계, 직접 원인, 통제 미흡, 고객 영향, 조치사항의 연결성을 우선 평가하세요.
+- 수정안에도 제공된 사실관계 외 내용을 추가하지 마세요.
+
+[사례]
+{CONFIRMATION_LAB["scenario"]}
+
+[고객 영향]
+{CONFIRMATION_LAB["impact"]}
+
+[확인된 추가 사실]
+{facts}
+
+[수강생 답안]
+{answer}
+
+아래 형식으로 한국어로 답하세요.
+
+### 종합평가
+2~3문장으로 평가
+
+### 항목별 점검
+- 사실관계 정확성: 적정 / 보완 필요
+- 직접 원인 명확성: 적정 / 보완 필요
+- 통제 미흡 구체성: 적정 / 보완 필요
+- 고객 영향 반영: 적정 / 보완 필요
+- 조치사항 표현: 적정 / 보완 필요
+- 근거 없는 내용: 없음 / 있음
+- 책임회피·모호 표현: 없음 / 있음
+
+### 보완할 부분
+최대 5개. 각 항목은 '문제 → 왜 문제인지 → 어떻게 고칠지' 순서로 작성
+
+### 수정 예시
+수강생 답안의 장점을 최대한 유지하면서 확인서 전체 초안을 다시 작성.
+제공된 사실관계만 사용.
+""".strip()
+
+
+def run_confirmation_ai_review(answer):
+    api_key = get_secret("OPENAI_API_KEY", None)
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY가 Streamlit Secrets에 설정되어 있지 않습니다.")
+
+    model = str(get_secret("MODEL", "gpt-5-mini"))
+    client = OpenAI(api_key=api_key)
+    response = client.responses.create(
+        model=model,
+        input=build_confirmation_review_prompt(answer),
+    )
+    text = getattr(response, "output_text", None)
+    if not text:
+        raise RuntimeError("AI 검토 결과를 받지 못했습니다.")
+    return text.strip()
+
+
 def participant_count():
     with db_conn() as conn:
         return conn.execute("SELECT COUNT(*) FROM participants").fetchone()[0]
@@ -982,10 +1099,37 @@ def participant_confirmation_area(nickname):
             save_confirmation_response(nickname, answer.strip())
             st.success("답안이 제출되었습니다.")
 
-        if get_confirmation_response(nickname):
+        saved = get_confirmation_response(nickname)
+        if saved:
             st.success(
                 f"제출 완료 · 현재 {confirmation_response_count()}/{participant_count()}명 제출"
             )
+
+            st.divider()
+            st.markdown("### 🤖 AI 검토")
+            st.caption(
+                "제출한 확인서를 사실관계·직접 원인·통제 미흡·고객 영향·조치사항 기준으로 점검합니다."
+            )
+
+            existing_review = get_confirmation_ai_review(nickname, saved[0])
+
+            if st.button(
+                "AI 검토 받기" if not existing_review else "AI 다시 검토하기",
+                use_container_width=True,
+                key="confirmation_ai_review_btn",
+            ):
+                with st.spinner("확인서를 검토하고 있습니다..."):
+                    try:
+                        review = run_confirmation_ai_review(saved[0])
+                        save_confirmation_ai_review(nickname, saved[0], review)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"AI 검토 중 오류가 발생했습니다: {e}")
+
+            review_row = get_confirmation_ai_review(nickname, saved[0])
+            if review_row:
+                st.markdown(review_row[0])
+                st.caption("※ 교육용 AI 검토 결과입니다. 최종 판단은 강의 해설과 함께 확인하세요.")
         else:
             st.caption(
                 f"현재 {confirmation_response_count()}/{participant_count()}명 제출"
@@ -1329,6 +1473,13 @@ def render_confirmation_admin():
             st.success("공개 답안을 숨겼습니다.")
             st.rerun()
 
+    selected_row = get_confirmation_response(selected)
+    if selected_row:
+        review_row = get_confirmation_ai_review(selected, selected_row[0])
+        if review_row:
+            with st.expander(f"🤖 {selected}님의 AI 검토 결과", expanded=False):
+                st.markdown(review_row[0])
+
 
 def admin_view():
     admin_auth()
@@ -1515,6 +1666,7 @@ def admin_view():
                 conn.execute("DELETE FROM responses")
                 conn.execute("DELETE FROM exercise_responses")
                 conn.execute("DELETE FROM confirmation_responses")
+                conn.execute("DELETE FROM confirmation_ai_reviews")
                 conn.execute(
                     """
                     UPDATE confirmation_state
@@ -1543,6 +1695,7 @@ def admin_view():
                 conn.execute("DELETE FROM responses")
                 conn.execute("DELETE FROM exercise_responses")
                 conn.execute("DELETE FROM confirmation_responses")
+                conn.execute("DELETE FROM confirmation_ai_reviews")
                 conn.execute("DELETE FROM participants")
                 conn.execute(
                     """
