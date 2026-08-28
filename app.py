@@ -729,6 +729,9 @@ def participant_view():
 
     # 새 참여자가 들어오면 모든 수강생 화면에 약 15초간 함께 표시
     shared_join_banner()
+
+    # 현재 참여한 닉네임 전체를 모든 수강생이 함께 확인
+    participant_roster()
     st.divider()
 
     if participant_exercise_area(nickname):
@@ -755,6 +758,55 @@ def admin_auth():
             st.error("비밀번호가 맞지 않습니다.")
     st.stop()
 
+
+
+
+def all_participants():
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT nickname
+            FROM participants
+            ORDER BY joined_at ASC
+            """
+        ).fetchall()
+    return [r[0] for r in rows]
+
+
+@st.fragment(run_every=3)
+def participant_roster():
+    names = all_participants()
+    if not names:
+        return
+
+    st.markdown("### 👥 함께 참여 중")
+    chips = "".join(
+        [
+            f"""
+            <span style="
+                display:inline-block;
+                padding:.42rem .72rem;
+                margin:.2rem .22rem .2rem 0;
+                border-radius:999px;
+                background:#f1f5f9;
+                border:1px solid #dbe3ec;
+                font-size:.98rem;
+                font-weight:650;
+                color:#334155;
+            ">{name}</span>
+            """
+            for name in names
+        ]
+    )
+    st.markdown(
+        f"""
+        <div style="margin:.2rem 0 .7rem 0;">
+            {chips}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.caption(f"현재 {len(names)}명 참여 중")
 
 
 def recent_participants(limit=5):
