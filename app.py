@@ -31,6 +31,10 @@ st.markdown(
           font-size: 1.7rem;
       }
 
+      div[data-testid="stHorizontalBlock"] > div:last-child {
+          align-self: flex-start;
+      }
+
       @media (max-width: 1100px) {
           .block-container {
               padding-left: 1.5rem;
@@ -757,6 +761,44 @@ def shared_join_banner():
 
 
 
+
+@st.fragment(run_every=3)
+def participant_roster_panel():
+    names = all_participants()
+    st.markdown(f"### 👥 함께 참여 중 · {len(names)}명")
+    if not names:
+        st.caption("아직 참여자가 없습니다.")
+        return
+
+    # PC 강의용 우측 패널: 닉네임을 2열 태그 형태로 표시
+    rows = []
+    for i in range(0, len(names), 2):
+        left = names[i]
+        right = names[i + 1] if i + 1 < len(names) else ""
+        rows.append((left, right))
+
+    for left_name, right_name in rows:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown(
+                f"<div style='padding:.48rem .55rem;margin:.12rem 0;"
+                f"border:1px solid #dbe3ec;border-radius:10px;"
+                f"background:#f8fafc;font-weight:650;text-align:center;'>"
+                f"{left_name}</div>",
+                unsafe_allow_html=True,
+            )
+        with c2:
+            if right_name:
+                st.markdown(
+                    f"<div style='padding:.48rem .55rem;margin:.12rem 0;"
+                    f"border:1px solid #dbe3ec;border-radius:10px;"
+                    f"background:#f8fafc;font-weight:650;text-align:center;'>"
+                    f"{right_name}</div>",
+                    unsafe_allow_html=True,
+                )
+
+
+
 @st.fragment(run_every=2)
 def participant_activity_router(nickname):
     """
@@ -777,24 +819,15 @@ def participant_activity_router(nickname):
 
     if exercise_active:
         participant_exercise_area(nickname)
-        st.divider()
-        with st.expander("👥 함께 참여 중인 닉네임 보기", expanded=False):
-            participant_roster()
         return
 
     if case_active:
         participant_live_area(nickname)
-        st.divider()
-        with st.expander("👥 함께 참여 중인 닉네임 보기", expanded=False):
-            participant_roster()
         return
 
     # 관리자 화면이 대기 상태일 때
     st.markdown("## 다음 질문을 기다려 주세요")
     st.caption("진행자가 다음 사례 또는 실습을 시작하면 이 화면이 자동으로 바뀝니다.")
-    st.divider()
-    with st.expander("👥 함께 참여 중인 닉네임 보기", expanded=False):
-        participant_roster()
 
 
 def participant_view():
@@ -807,11 +840,16 @@ def participant_view():
     st.title("금융 AI 사례 · 실시간 참여")
     st.caption(f"참여자: **{nickname}** · 전체 접속: **{participant_count()}명**")
 
-    # 새 입장 알림은 대기 중의 분위기 조성을 위해 별도 자동 갱신
-    shared_join_banner()
+    # PC 강의용 고정 2열 구성
+    # 왼쪽: 현재 질문/결과/실습, 오른쪽: 전체 참석자 닉네임
+    main_col, roster_col = st.columns([4.2, 1.15], gap="large")
 
-    # 관리자 조작에 따라 현재 활동을 자동 전환
-    participant_activity_router(nickname)
+    with main_col:
+        shared_join_banner()
+        participant_activity_router(nickname)
+
+    with roster_col:
+        participant_roster_panel()
 
 
 def admin_auth():
