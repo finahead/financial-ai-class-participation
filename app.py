@@ -159,6 +159,26 @@ def init_db():
                 PRIMARY KEY (nickname, exercise_id)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS confirmation_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                display_mode TEXT NOT NULL DEFAULT 'waiting',
+                spotlight_nickname TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO confirmation_state
+            (id, display_mode, spotlight_nickname, updated_at)
+            VALUES (1, 'waiting', '', ?)
+        """, (datetime.now().isoformat(timespec="seconds"),))
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS confirmation_responses (
+                nickname TEXT PRIMARY KEY,
+                answer TEXT NOT NULL,
+                answered_at TEXT NOT NULL
+            )
+        """)
         conn.commit()
 
 
@@ -242,6 +262,41 @@ EXERCISES = {
     },
 }
 
+
+
+CONFIRMATION_LAB = {
+    "title": "마지막 실습 · FSS IT검사 확인서 작성",
+    "scenario": (
+        "○○은행은 고객 거래내역을 AI가 분석하여 우대금리 조건 충족 여부를 자동 판정하는 시스템을 "
+        "2026년 4월부터 운영하였다. 고객 거래정보 → AI가 급여이체·카드사용·자동이체 등 우대조건 판단 "
+        "→ 우대금리 코드 생성 → 이자계산 배치시스템 반영 → 고객계좌 이자 지급 구조이다. "
+        "2026년 7월 고객 민원을 계기로 점검한 결과, AI가 거래 적요에 '급여'라는 문구가 포함된 일부 "
+        "개인 간 송금을 실제 급여이체로 오분류한 사실이 확인되었다."
+    ),
+    "impact": (
+        "그 결과 1,240명에게 우대금리가 과다 적용되어 총 2,800만원이 과다 지급되었고, "
+        "318명에게는 우대금리가 적용되지 않아 총 940만원이 과소 지급되었다."
+    ),
+    "facts": [
+        "운영 전 테스트 대상은 50명의 고객 사례에 한정",
+        "개인 간 송금 등 예외·경계사례 테스트 미실시",
+        "2026년 5월 외부업체가 AI 판정 Prompt를 변경",
+        "Prompt 변경에 대한 내부 변경요청·책임자 승인·재테스트 기록 없음",
+        "AI 판정결과가 별도 검증절차 없이 이자계산 배치에 직접 반영",
+        "사후 검증은 고객별 대사가 아닌 전체 이자지급액 합계만 확인",
+        "운영 이후 AI 오분류율에 대한 별도 모니터링 기준 없음",
+    ],
+    "prompt": (
+        "위 사실관계만을 이용하여 금융감독원 IT검사 확인서의 첫 2~3문장을 작성해 보세요. "
+        "사실관계에 없는 내용은 추가하지 마세요."
+    ),
+    "sample": (
+        "○○은행은 고객 거래내역을 AI로 분석하여 우대금리 조건 충족 여부를 판정하고 그 결과를 "
+        "이자계산 배치시스템에 반영하는 시스템을 운영하였다. 점검 결과 AI 판정기능이 일부 개인 간 "
+        "송금을 급여이체로 오분류하였고, 해당 판정결과가 별도 검증절차 없이 이자계산에 반영되어 "
+        "일부 고객의 우대금리가 과다·과소 적용된 사실이 확인되었다."
+    ),
+}
 
 def login_gate():
     st.session_state.setdefault("authenticated", False)
@@ -498,6 +553,77 @@ def get_exercise_responses(exercise_id):
             ORDER BY answered_at
             """,
             (exercise_id,),
+        ).fetchall()
+
+
+
+def get_confirmation_state():
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT display_mode, spotlight_nickname, updated_at "
+            "FROM confirmation_state WHERE id=1"
+        ).fetchone()
+    return {
+        "display_mode": row[0],
+        "spotlight_nickname": row[1],
+        "updated_at": row[2],
+    }
+
+
+def set_confirmation_state(display_mode, spotlight_nickname=""):
+    with db_conn() as conn:
+        conn.execute(
+            """
+            UPDATE confirmation_state
+            SET display_mode=?, spotlight_nickname=?, updated_at=?
+            WHERE id=1
+            """,
+            (
+                display_mode,
+                spotlight_nickname,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+        conn.commit()
+
+
+def save_confirmation_response(nickname, answer):
+    with db_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO confirmation_responses(nickname, answer, answered_at)
+            VALUES(?,?,?)
+            ON CONFLICT(nickname)
+            DO UPDATE SET answer=excluded.answer, answered_at=excluded.answered_at
+            """,
+            (nickname, answer, datetime.now().isoformat(timespec="seconds")),
+        )
+        conn.commit()
+
+
+def get_confirmation_response(nickname):
+    with db_conn() as conn:
+        return conn.execute(
+            "SELECT answer, answered_at FROM confirmation_responses WHERE nickname=?",
+            (nickname,),
+        ).fetchone()
+
+
+def confirmation_response_count():
+    with db_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM confirmation_responses"
+        ).fetchone()[0]
+
+
+def get_confirmation_responses():
+    with db_conn() as conn:
+        return conn.execute(
+            """
+            SELECT nickname, answer, answered_at
+            FROM confirmation_responses
+            ORDER BY answered_at
+            """
         ).fetchall()
 
 
@@ -799,15 +925,100 @@ def participant_roster_panel():
 
 
 
+
+def participant_confirmation_area(nickname):
+    state = get_confirmation_state()
+    mode = state["display_mode"]
+
+    if mode == "waiting":
+        return False
+
+    st.markdown(f"## 📝 {CONFIRMATION_LAB['title']}")
+    st.markdown("### 상황")
+    st.write(CONFIRMATION_LAB["scenario"])
+    st.warning(CONFIRMATION_LAB["impact"])
+
+    with st.expander("확인된 추가 사실 보기", expanded=True):
+        for fact in CONFIRMATION_LAB["facts"]:
+            st.markdown(f"- {fact}")
+
+    if mode == "write":
+        st.info(CONFIRMATION_LAB["prompt"])
+        existing = get_confirmation_response(nickname)
+        prior = existing[0] if existing else ""
+        answer = st.text_area(
+            "확인서 첫 2~3문장",
+            value=prior,
+            height=180,
+            placeholder="사실관계 → 직접 원인 → 통제 미흡이 드러나도록 작성해 보세요.",
+            key="confirmation_answer",
+        )
+        if st.button(
+            "확인서 답안 제출",
+            type="primary",
+            use_container_width=True,
+            disabled=not answer.strip(),
+            key="confirmation_submit",
+        ):
+            save_confirmation_response(nickname, answer.strip())
+            st.success("답안이 제출되었습니다.")
+
+        if get_confirmation_response(nickname):
+            st.success(
+                f"제출 완료 · 현재 {confirmation_response_count()}/{participant_count()}명 제출"
+            )
+        else:
+            st.caption(
+                f"현재 {confirmation_response_count()}/{participant_count()}명 제출"
+            )
+        return True
+
+    if mode in ("review", "sample"):
+        st.markdown("### 함께 볼 답안")
+        spotlight = state["spotlight_nickname"]
+        if spotlight:
+            row = get_confirmation_response(spotlight)
+            if row:
+                st.markdown(
+                    f"""
+                    <div style="padding:1.4rem 1.5rem;border:1px solid #e5e7eb;
+                         border-radius:16px;background:#f8fafc;">
+                      <div style="font-size:1.6rem;font-weight:800;margin-bottom:.7rem;">
+                        {spotlight}
+                      </div>
+                      <div style="font-size:1.08rem;line-height:1.75;">{row[0]}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("진행자가 함께 볼 답안을 선택하고 있습니다.")
+
+        if mode == "sample":
+            st.markdown("### 강사 예시문")
+            st.success(CONFIRMATION_LAB["sample"])
+
+        mine = get_confirmation_response(nickname)
+        if mine:
+            with st.expander("내가 제출한 답안 보기"):
+                st.write(mine[0])
+        return True
+
+    return False
+
+
+
 @st.fragment(run_every=2)
 def participant_activity_router(nickname):
     """
     2초마다 관리자 상태를 다시 확인하여
     대기 → 사례 질문/결과 → 3교시 실습/답안공개 화면으로 자동 전환한다.
     """
+    confirm_state = get_confirmation_state()
     ex_state = get_exercise_state()
     case_state = get_state()
 
+    confirmation_active = confirm_state["display_mode"] != "waiting"
     exercise_active = (
         ex_state["current_exercise"] != 0
         and ex_state["display_mode"] != "waiting"
@@ -816,6 +1027,10 @@ def participant_activity_router(nickname):
         case_state["current_case"] != 0
         and case_state["display_mode"] != "waiting"
     )
+
+    if confirmation_active:
+        participant_confirmation_area(nickname)
+        return
 
     if exercise_active:
         participant_exercise_area(nickname)
@@ -1026,6 +1241,76 @@ def render_exercise_admin():
             st.rerun()
 
 
+
+def render_confirmation_admin():
+    state = get_confirmation_state()
+
+    st.markdown("## 📝 마지막 실습 · FSS IT검사 확인서 작성")
+    st.caption(
+        "수강생이 확인서 첫 2~3문장을 작성하고, 강사가 특정 답안을 닉네임과 함께 전체 화면에 공개합니다."
+    )
+
+    st.info(CONFIRMATION_LAB["prompt"])
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        if st.button("▶ 확인서 실습 시작", type="primary", use_container_width=True):
+            set_state(0, "pre", "waiting")
+            set_exercise_state(0, "waiting", "")
+            set_confirmation_state("write", "")
+            st.success("확인서 작성 화면을 열었습니다.")
+            st.rerun()
+    with c2:
+        if st.button("💬 제출 종료 · 답안 보기", use_container_width=True):
+            set_confirmation_state("review", "")
+            st.success("제출을 종료했습니다.")
+            st.rerun()
+    with c3:
+        if st.button("📘 강사 예시문 공개", use_container_width=True):
+            current = get_confirmation_state()["spotlight_nickname"]
+            set_confirmation_state("sample", current)
+            st.success("강사 예시문을 공개했습니다.")
+            st.rerun()
+    with c4:
+        if st.button("⏸ 확인서 실습 대기", use_container_width=True):
+            set_confirmation_state("waiting", "")
+            st.success("확인서 실습을 대기 상태로 전환했습니다.")
+            st.rerun()
+
+    count = confirmation_response_count()
+    st.metric("현재 제출", f"{count}/{participant_count()}명")
+
+    rows = get_confirmation_responses()
+    if not rows:
+        st.caption("아직 제출된 답안이 없습니다.")
+        return
+
+    df = pd.DataFrame(rows, columns=["닉네임", "확인서 답안", "제출시각"])
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    names = [r[0] for r in rows]
+    current = state["spotlight_nickname"]
+    idx = names.index(current) if current in names else 0
+    selected = st.selectbox(
+        "전체 화면에 띄울 답안",
+        names,
+        index=idx,
+        key="confirmation_spotlight_select",
+    )
+
+    a1, a2 = st.columns(2)
+    with a1:
+        if st.button("📺 선택 답안 전체 공개", use_container_width=True, key="confirmation_publish"):
+            set_confirmation_state("review", selected)
+            st.success(f"{selected}님의 답안을 전체 공개했습니다.")
+            st.rerun()
+    with a2:
+        if st.button("공개 답안 숨기기", use_container_width=True, key="confirmation_hide"):
+            set_confirmation_state("review", "")
+            st.success("공개 답안을 숨겼습니다.")
+            st.rerun()
+
+
 def admin_view():
     admin_auth()
     state = get_state()
@@ -1148,6 +1433,9 @@ def admin_view():
     render_exercise_admin()
 
     st.divider()
+    render_confirmation_admin()
+
+    st.divider()
     st.markdown("### 전체 응답 관리")
     df = responses_df()
 
@@ -1186,12 +1474,36 @@ def admin_view():
                 use_container_width=True,
             )
 
+    confirm_rows = get_confirmation_responses()
+    if confirm_rows:
+        confirm_df = pd.DataFrame(
+            confirm_rows,
+            columns=["nickname", "answer", "answered_at"],
+        )
+        confirm_csv = confirm_df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            "확인서 실습 CSV 다운로드",
+            data=confirm_csv,
+            file_name="financial_ai_confirmation_lab.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
     r1, r2 = st.columns(2)
     with r1:
         if st.button("응답만 초기화", use_container_width=True):
             with db_conn() as conn:
                 conn.execute("DELETE FROM responses")
                 conn.execute("DELETE FROM exercise_responses")
+                conn.execute("DELETE FROM confirmation_responses")
+                conn.execute(
+                    """
+                    UPDATE confirmation_state
+                    SET display_mode='waiting', spotlight_nickname='', updated_at=?
+                    WHERE id=1
+                    """,
+                    (datetime.now().isoformat(timespec="seconds"),),
+                )
                 conn.execute(
                     """
                     UPDATE exercise_state
@@ -1211,7 +1523,16 @@ def admin_view():
             with db_conn() as conn:
                 conn.execute("DELETE FROM responses")
                 conn.execute("DELETE FROM exercise_responses")
+                conn.execute("DELETE FROM confirmation_responses")
                 conn.execute("DELETE FROM participants")
+                conn.execute(
+                    """
+                    UPDATE confirmation_state
+                    SET display_mode='waiting', spotlight_nickname='', updated_at=?
+                    WHERE id=1
+                    """,
+                    (datetime.now().isoformat(timespec="seconds"),),
+                )
                 conn.execute(
                     """
                     UPDATE app_state
