@@ -780,33 +780,30 @@ def participant_roster():
         return
 
     st.markdown("### 👥 함께 참여 중")
+
+    # 여러 줄로 들여쓴 HTML은 Markdown 코드블록으로 해석될 수 있으므로
+    # 한 줄 HTML로 만들어 렌더링한다.
     chips = "".join(
         [
-            f"""
-            <span style="
-                display:inline-block;
-                padding:.42rem .72rem;
-                margin:.2rem .22rem .2rem 0;
-                border-radius:999px;
-                background:#f1f5f9;
-                border:1px solid #dbe3ec;
-                font-size:.98rem;
-                font-weight:650;
-                color:#334155;
-            ">{name}</span>
-            """
+            '<span style="display:inline-block;'
+            'padding:.42rem .72rem;'
+            'margin:.2rem .22rem .2rem 0;'
+            'border-radius:999px;'
+            'background:#f1f5f9;'
+            'border:1px solid #dbe3ec;'
+            'font-size:.98rem;'
+            'font-weight:650;'
+            'color:#334155;">'
+            + str(name) +
+            '</span>'
             for name in names
         ]
     )
-    st.markdown(
-        f"""
-        <div style="margin:.2rem 0 .7rem 0;">
-            {chips}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+
+    roster_html = '<div style="margin:.2rem 0 .7rem 0;">' + chips + '</div>'
+    st.markdown(roster_html, unsafe_allow_html=True)
     st.caption(f"현재 {len(names)}명 참여 중")
+
 
 
 def recent_participants(limit=5):
