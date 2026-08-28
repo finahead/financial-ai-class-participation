@@ -100,6 +100,31 @@ def init_db():
                 PRIMARY KEY (nickname, case_id, phase)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS exercise_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                current_exercise INTEGER NOT NULL DEFAULT 0,
+                display_mode TEXT NOT NULL DEFAULT 'waiting',
+                spotlight_nickname TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            INSERT OR IGNORE INTO exercise_state
+            (id, current_exercise, display_mode, spotlight_nickname, updated_at)
+            VALUES (1, 0, 'waiting', '', ?)
+        """, (datetime.now().isoformat(timespec="seconds"),))
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS exercise_responses (
+                nickname TEXT NOT NULL,
+                exercise_id INTEGER NOT NULL,
+                judgment TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                procedure TEXT NOT NULL,
+                answered_at TEXT NOT NULL,
+                PRIMARY KEY (nickname, exercise_id)
+            )
+        """)
         conn.commit()
 
 
@@ -139,6 +164,47 @@ CASES = {
         "question": "AI가 특정 보장의 가입 제한 대상으로 판단하면 설계 단계에서 해당 보장을 자동 제외해도 된다고 생각하십니까?",
         "options": ["자동 제외해도 된다", "조건부로 가능하다", "추가 확인·심사 없이 자동 제외하면 안 된다", "잘 모르겠다"],
         "focus": "AI의 해석 결과와 고객 권리에 영향을 주는 최종 판단을 분리해야 하는가?",
+    },
+}
+
+
+
+EXERCISES = {
+    1: {
+        "title": "상황별 실습 1",
+        "question": "AI가 최종결정해도 되는 업무와 사람이 반드시 개입해야 하는 업무는 무엇인가?",
+        "points": "대출한도·금리·상품추천·거래차단·상담기록·운영배포를 영향도별로 구분해 보세요.",
+        "hint": "고객 권리·금전거래·운영시스템에 미치는 영향을 기준으로 판단합니다.",
+    },
+    2: {
+        "title": "상황별 실습 2",
+        "question": "AI OCR 오류로 고객 B의 대출이 거절됐다면 누구 책임이며 어떤 절차가 필요했는가?",
+        "points": "입사일 오인식, 자동거절 후보, 원본 서류 확인 여부를 중심으로 답하세요.",
+        "hint": "AI가 읽지 못한 것과 고객이 자격이 없는 것은 다른 문제입니다.",
+    },
+    3: {
+        "title": "상황별 실습 3",
+        "question": "고객 C에게 자사 중금리대출을 1순위로 추천한 것은 잘못인가?",
+        "points": "고객에게 가장 유리한 추천, 승인 가능성, 자사상품 우대, 광고와 추천 구분을 검토하세요.",
+        "hint": "추천 목표가 무엇인지가 핵심입니다.",
+    },
+    4: {
+        "title": "상황별 실습 4",
+        "question": "고객 D의 보이스피싱 의심거래를 AI가 자동 차단해도 되는가?",
+        "points": "정상 인증이 완료된 거래, 외부 의심정보, 거래지연·추가인증·차단 단계를 나눠 보세요.",
+        "hint": "AI 판단과 실제 조치수준을 구분합니다.",
+    },
+    5: {
+        "title": "상황별 실습 5",
+        "question": "직원이 AI 상담요약을 확인했다면 충분한 통제가 이루어진 것인가?",
+        "points": "자동화 편향, 원문 근거 연결, 무수정 승인율, 고위험 발언 누락을 중심으로 답하세요.",
+        "hint": "사람이 있는 것과 사람이 오류를 발견할 수 있는 것은 다릅니다.",
+    },
+    6: {
+        "title": "상황별 실습 6",
+        "question": "개발자가 AI 코딩 에이전트가 만든 코드를 검토했다면 배포해도 되는가?",
+        "points": "인증 코드 변경, 테스트 통과, 코드리뷰, 정적분석, 배포승인을 구분하세요.",
+        "hint": "AI가 만든 코드도 기존 변경관리 절차를 통과해야 합니다.",
     },
 }
 
@@ -309,6 +375,98 @@ def get_counts(case_id, phase):
     return {answer: count for answer, count in rows}
 
 
+
+def get_exercise_state():
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT current_exercise, display_mode, spotlight_nickname, updated_at FROM exercise_state WHERE id=1"
+        ).fetchone()
+    return {
+        "current_exercise": int(row[0]),
+        "display_mode": row[1],
+        "spotlight_nickname": row[2],
+        "updated_at": row[3],
+    }
+
+
+def set_exercise_state(current_exercise, display_mode, spotlight_nickname=""):
+    with db_conn() as conn:
+        conn.execute(
+            """
+            UPDATE exercise_state
+            SET current_exercise=?, display_mode=?, spotlight_nickname=?, updated_at=?
+            WHERE id=1
+            """,
+            (
+                current_exercise,
+                display_mode,
+                spotlight_nickname,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+        conn.commit()
+
+
+def save_exercise_response(nickname, exercise_id, judgment, reason, procedure):
+    with db_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO exercise_responses
+            (nickname, exercise_id, judgment, reason, procedure, answered_at)
+            VALUES(?,?,?,?,?,?)
+            ON CONFLICT(nickname, exercise_id)
+            DO UPDATE SET
+                judgment=excluded.judgment,
+                reason=excluded.reason,
+                procedure=excluded.procedure,
+                answered_at=excluded.answered_at
+            """,
+            (
+                nickname,
+                exercise_id,
+                judgment,
+                reason,
+                procedure,
+                datetime.now().isoformat(timespec="seconds"),
+            ),
+        )
+        conn.commit()
+
+
+def get_exercise_response(nickname, exercise_id):
+    with db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT judgment, reason, procedure, answered_at
+            FROM exercise_responses
+            WHERE nickname=? AND exercise_id=?
+            """,
+            (nickname, exercise_id),
+        ).fetchone()
+    return row
+
+
+def exercise_response_count(exercise_id):
+    with db_conn() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM exercise_responses WHERE exercise_id=?",
+            (exercise_id,),
+        ).fetchone()[0]
+
+
+def get_exercise_responses(exercise_id):
+    with db_conn() as conn:
+        return conn.execute(
+            """
+            SELECT nickname, judgment, reason, procedure, answered_at
+            FROM exercise_responses
+            WHERE exercise_id=?
+            ORDER BY answered_at
+            """,
+            (exercise_id,),
+        ).fetchall()
+
+
 def participant_count():
     with db_conn() as conn:
         return conn.execute("SELECT COUNT(*) FROM participants").fetchone()[0]
@@ -388,6 +546,117 @@ def participant_live_area(nickname):
         st.info(f"생각할 포인트: {case['focus']}")
 
 
+
+@st.fragment(run_every=2)
+def participant_exercise_area(nickname):
+    ex_state = get_exercise_state()
+    ex_id = ex_state["current_exercise"]
+    mode = ex_state["display_mode"]
+
+    if ex_id == 0 or mode == "waiting":
+        return False
+
+    ex = EXERCISES[ex_id]
+
+    if mode == "exercise":
+        st.markdown(f"## ✍️ {ex['title']}")
+        st.markdown(f"### {ex['question']}")
+        st.info(f"답안 작성 포인트: {ex['points']}")
+        st.caption(f"힌트: {ex['hint']}")
+
+        existing = get_exercise_response(nickname, ex_id)
+        prior_judgment = existing[0] if existing else None
+        prior_reason = existing[1] if existing else ""
+        prior_procedure = existing[2] if existing else ""
+
+        options = ["가능", "불가", "조건부"]
+        idx = options.index(prior_judgment) if prior_judgment in options else None
+
+        judgment = st.radio(
+            "① 판단",
+            options,
+            index=idx,
+            horizontal=True,
+            key=f"ex_judgment_{ex_id}",
+        )
+        reason = st.text_area(
+            "② 근거 — 고객영향·법규·운영위험",
+            value=prior_reason,
+            height=150,
+            placeholder="왜 그렇게 판단했는지 3~5줄 정도로 적어보세요.",
+            key=f"ex_reason_{ex_id}",
+        )
+        procedure = st.text_area(
+            "③ 필요한 절차 — 중단·확인·승인·기록",
+            value=prior_procedure,
+            height=150,
+            placeholder="실제 업무라면 어떤 절차가 필요할지 적어보세요.",
+            key=f"ex_procedure_{ex_id}",
+        )
+
+        if st.button(
+            "답안 제출",
+            type="primary",
+            use_container_width=True,
+            disabled=(judgment is None or not reason.strip() or not procedure.strip()),
+            key=f"ex_submit_{ex_id}",
+        ):
+            save_exercise_response(
+                nickname, ex_id, judgment, reason.strip(), procedure.strip()
+            )
+            st.success("답안이 제출되었습니다.")
+
+        if get_exercise_response(nickname, ex_id):
+            st.success(
+                f"제출 완료 · 현재 {exercise_response_count(ex_id)}/{participant_count()}명 제출"
+            )
+        else:
+            st.caption(
+                f"현재 {exercise_response_count(ex_id)}/{participant_count()}명 제출"
+            )
+        return True
+
+    if mode == "review":
+        st.markdown(f"## 💬 {ex['title']} · 답안 같이 보기")
+        st.markdown(f"### {ex['question']}")
+        st.caption(
+            f"현재 {exercise_response_count(ex_id)}/{participant_count()}명 제출"
+        )
+
+        spotlight = ex_state["spotlight_nickname"]
+        if spotlight:
+            row = get_exercise_response(spotlight, ex_id)
+            if row:
+                judgment, reason, procedure, _ = row
+                st.markdown("### 강사가 선택한 답안")
+                st.markdown(
+                    f"""
+                    <div style="padding:1.4rem 1.5rem;border:1px solid #e5e7eb;
+                         border-radius:16px;background:#f8fafc;">
+                      <div style="font-size:1.6rem;font-weight:800;margin-bottom:.7rem;">
+                        {spotlight}
+                      </div>
+                      <div style="margin-bottom:.8rem;"><b>① 판단</b> · {judgment}</div>
+                      <div style="margin-bottom:.8rem;"><b>② 근거</b><br>{reason}</div>
+                      <div><b>③ 필요한 절차</b><br>{procedure}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("진행자가 함께 볼 답안을 선택하고 있습니다.")
+
+        my_row = get_exercise_response(nickname, ex_id)
+        if my_row:
+            with st.expander("내가 제출한 답안 보기"):
+                st.write("① 판단:", my_row[0])
+                st.write("② 근거:", my_row[1])
+                st.write("③ 필요한 절차:", my_row[2])
+        return True
+
+    return False
+
+
 def participant_view():
     login_gate()
     nickname = register_nickname()
@@ -399,6 +668,9 @@ def participant_view():
     st.markdown(f"### 👋 **{nickname} 님**, 참여 중입니다.")
     st.caption(f"전체 접속: **{participant_count()}명**")
     st.divider()
+
+    if participant_exercise_area(nickname):
+        return
 
     participant_live_area(nickname)
 
@@ -451,6 +723,86 @@ def responses_df():
     )
 
 
+
+def render_exercise_admin():
+    ex_state = get_exercise_state()
+
+    st.markdown("## ✍️ 3교시 · 상황별 실습 Q1~Q6")
+    st.caption(
+        "실습을 하나씩 열고, 제출현황을 확인한 뒤 특정 답안을 전체 화면에 띄울 수 있습니다."
+    )
+
+    ex_options = list(EXERCISES.keys())
+    default_ex = ex_state["current_exercise"] if ex_state["current_exercise"] in ex_options else 1
+    ex_id = st.selectbox(
+        "실습 선택",
+        ex_options,
+        index=ex_options.index(default_ex),
+        format_func=lambda x: f"Q{x} · {EXERCISES[x]['question']}",
+        key="admin_exercise_select",
+    )
+    ex = EXERCISES[ex_id]
+
+    st.info(ex["question"])
+    st.caption(f"답안 작성 포인트: {ex['points']}")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("▶ 실습 시작", type="primary", use_container_width=True):
+            set_state(0, "pre", "waiting")
+            set_exercise_state(ex_id, "exercise", "")
+            st.success(f"Q{ex_id} 입력화면을 열었습니다.")
+            st.rerun()
+    with c2:
+        if st.button("💬 제출 종료 · 답안 보기", use_container_width=True):
+            set_exercise_state(ex_id, "review", "")
+            st.success(f"Q{ex_id} 제출을 종료했습니다.")
+            st.rerun()
+    with c3:
+        if st.button("⏸ 실습 대기", use_container_width=True):
+            set_exercise_state(0, "waiting", "")
+            st.success("실습 화면을 대기로 전환했습니다.")
+            st.rerun()
+
+    total = participant_count()
+    count = exercise_response_count(ex_id)
+    st.metric("현재 제출", f"{count}/{total}명")
+
+    rows = get_exercise_responses(ex_id)
+    if not rows:
+        st.caption("아직 제출된 답안이 없습니다.")
+        return
+
+    df = pd.DataFrame(
+        rows,
+        columns=["닉네임", "판단", "근거", "필요한 절차", "제출시각"],
+    )
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    st.markdown("### 전체 화면에 띄울 답안")
+    names = [r[0] for r in rows]
+    current = ex_state["spotlight_nickname"]
+    idx = names.index(current) if current in names else 0
+    selected = st.selectbox(
+        "답안 선택",
+        names,
+        index=idx,
+        key=f"spotlight_select_{ex_id}",
+    )
+
+    s1, s2 = st.columns(2)
+    with s1:
+        if st.button("📺 선택 답안 전체 공개", use_container_width=True):
+            set_exercise_state(ex_id, "review", selected)
+            st.success(f"{selected}님의 답안을 참여자 화면에 공개했습니다.")
+            st.rerun()
+    with s2:
+        if st.button("공개 답안 숨기기", use_container_width=True):
+            set_exercise_state(ex_id, "review", "")
+            st.success("공개 답안을 숨겼습니다.")
+            st.rerun()
+
+
 def admin_view():
     admin_auth()
     state = get_state()
@@ -495,6 +847,10 @@ def admin_view():
         st.caption(f"최근 입장: {names}")
 
     st.divider()
+    render_exercise_admin()
+
+    st.divider()
+    st.markdown("## 1·2교시 · 사례 사전질문")
     st.markdown("### 1. 질문 선택")
 
     case_options = list(CASES.keys())
@@ -571,20 +927,56 @@ def admin_view():
     st.markdown("### 전체 응답 관리")
     df = responses_df()
 
-    if not df.empty:
-        csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
-        st.download_button(
-            "전체 응답 CSV 다운로드",
-            data=csv_bytes,
-            file_name="financial_ai_votes.csv",
-            mime="text/csv",
-        )
+    d1, d2 = st.columns(2)
+    with d1:
+        if not df.empty:
+            csv_bytes = df.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "사례투표 CSV 다운로드",
+                data=csv_bytes,
+                file_name="financial_ai_votes.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+    with db_conn() as conn:
+        ex_rows = conn.execute(
+            """
+            SELECT nickname, exercise_id, judgment, reason, procedure, answered_at
+            FROM exercise_responses
+            ORDER BY exercise_id, answered_at
+            """
+        ).fetchall()
+    ex_df = pd.DataFrame(
+        ex_rows,
+        columns=["nickname", "exercise_id", "judgment", "reason", "procedure", "answered_at"],
+    )
+    with d2:
+        if not ex_df.empty:
+            ex_csv = ex_df.to_csv(index=False).encode("utf-8-sig")
+            st.download_button(
+                "상황별 실습 CSV 다운로드",
+                data=ex_csv,
+                file_name="financial_ai_exercises.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
     r1, r2 = st.columns(2)
     with r1:
         if st.button("응답만 초기화", use_container_width=True):
             with db_conn() as conn:
                 conn.execute("DELETE FROM responses")
+                conn.execute("DELETE FROM exercise_responses")
+                conn.execute(
+                    """
+                    UPDATE exercise_state
+                    SET current_exercise=0, display_mode='waiting',
+                        spotlight_nickname='', updated_at=?
+                    WHERE id=1
+                    """,
+                    (datetime.now().isoformat(timespec="seconds"),),
+                )
                 conn.commit()
             st.success("모든 응답을 초기화했습니다.")
             st.rerun()
@@ -594,11 +986,21 @@ def admin_view():
         if st.button("전체 초기화", use_container_width=True, disabled=not confirm):
             with db_conn() as conn:
                 conn.execute("DELETE FROM responses")
+                conn.execute("DELETE FROM exercise_responses")
                 conn.execute("DELETE FROM participants")
                 conn.execute(
                     """
                     UPDATE app_state
                     SET current_case=0, phase='pre', display_mode='waiting', updated_at=?
+                    WHERE id=1
+                    """,
+                    (datetime.now().isoformat(timespec="seconds"),),
+                )
+                conn.execute(
+                    """
+                    UPDATE exercise_state
+                    SET current_exercise=0, display_mode='waiting',
+                        spotlight_nickname='', updated_at=?
                     WHERE id=1
                     """,
                     (datetime.now().isoformat(timespec="seconds"),),
