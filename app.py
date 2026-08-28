@@ -756,19 +756,13 @@ def shared_join_banner():
     )
 
 
-def participant_view():
-    login_gate()
-    nickname = register_nickname()
 
-    if st.session_state.get("show_welcome", False):
-        render_welcome_screen(nickname)
-
-    st.title("금융 AI 사례 · 실시간 참여")
-    st.caption(f"참여자: **{nickname}** · 전체 접속: **{participant_count()}명**")
-
-    # 강사가 질문/실습을 열면 해당 화면을 최상단에 우선 배치한다.
-    # 원격 브라우저를 강제로 스크롤시키는 방식보다 안정적이며,
-    # 자동 갱신 시 자연스럽게 현재 활동에 포커스가 맞춰진다.
+@st.fragment(run_every=2)
+def participant_activity_router(nickname):
+    """
+    2초마다 관리자 상태를 다시 확인하여
+    대기 → 사례 질문/결과 → 3교시 실습/답안공개 화면으로 자동 전환한다.
+    """
     ex_state = get_exercise_state()
     case_state = get_state()
 
@@ -795,11 +789,29 @@ def participant_view():
             participant_roster()
         return
 
-    # 대기 중에는 입장 알림과 전체 참여자 명단을 보여준다.
-    shared_join_banner()
-    participant_roster()
+    # 관리자 화면이 대기 상태일 때
+    st.markdown("## 다음 질문을 기다려 주세요")
+    st.caption("진행자가 다음 사례 또는 실습을 시작하면 이 화면이 자동으로 바뀝니다.")
     st.divider()
-    participant_live_area(nickname)
+    with st.expander("👥 함께 참여 중인 닉네임 보기", expanded=False):
+        participant_roster()
+
+
+def participant_view():
+    login_gate()
+    nickname = register_nickname()
+
+    if st.session_state.get("show_welcome", False):
+        render_welcome_screen(nickname)
+
+    st.title("금융 AI 사례 · 실시간 참여")
+    st.caption(f"참여자: **{nickname}** · 전체 접속: **{participant_count()}명**")
+
+    # 새 입장 알림은 대기 중의 분위기 조성을 위해 별도 자동 갱신
+    shared_join_banner()
+
+    # 관리자 조작에 따라 현재 활동을 자동 전환
+    participant_activity_router(nickname)
 
 
 def admin_auth():
