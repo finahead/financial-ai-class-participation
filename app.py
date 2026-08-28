@@ -287,14 +287,23 @@ CONFIRMATION_LAB = {
         "운영 이후 AI 오분류율에 대한 별도 모니터링 기준 없음",
     ],
     "prompt": (
-        "위 사실관계만을 이용하여 금융감독원 IT검사 확인서의 첫 2~3문장을 작성해 보세요. "
-        "사실관계에 없는 내용은 추가하지 마세요."
+        "위 사실관계만을 이용하여 금융감독원 IT검사 확인서 전체 초안을 작성해 보세요. "
+        "사실관계, 직접 원인, 통제 미흡, 고객 영향, 확인·조치사항이 자연스럽게 이어지도록 작성하되, "
+        "제시되지 않은 사실은 추가하지 마세요."
     ),
     "sample": (
-        "○○은행은 고객 거래내역을 AI로 분석하여 우대금리 조건 충족 여부를 판정하고 그 결과를 "
-        "이자계산 배치시스템에 반영하는 시스템을 운영하였다. 점검 결과 AI 판정기능이 일부 개인 간 "
-        "송금을 급여이체로 오분류하였고, 해당 판정결과가 별도 검증절차 없이 이자계산에 반영되어 "
-        "일부 고객의 우대금리가 과다·과소 적용된 사실이 확인되었다."
+        "○○은행은 고객 거래내역을 AI로 분석하여 급여이체·카드사용·자동이체 등 우대금리 조건 충족 여부를 판정하고, "
+        "그 결과를 우대금리 코드로 생성하여 이자계산 배치시스템에 반영하는 시스템을 2026년 4월부터 운영하였다. "
+        "2026년 7월 고객 민원을 계기로 점검한 결과, AI 판정기능이 거래 적요에 ‘급여’ 문구가 포함된 일부 개인 간 송금을 "
+        "실제 급여이체로 오분류하였고, 해당 판정결과가 별도의 검증절차 없이 이자계산 배치에 직접 반영된 사실이 확인되었다.\n\n"
+        "이로 인해 1,240명의 고객에게 우대금리가 과다 적용되어 총 2,800만원이 과다 지급되었고, 318명의 고객에게는 "
+        "우대금리가 적용되지 않아 총 940만원이 과소 지급되었다. 운영 전 테스트는 50명의 고객 사례에 한정되어 있었으며, "
+        "개인 간 송금 등 예외·경계사례에 대한 테스트는 실시되지 않았다. 또한 2026년 5월 외부업체가 AI 판정 Prompt를 변경하였으나 "
+        "이에 대한 내부 변경요청, 책임자 승인 및 재테스트 기록이 확인되지 않았다.\n\n"
+        "아울러 AI 판정결과가 별도 검증 없이 이자계산 배치에 직접 반영되었고, 사후 검증도 고객별 대사가 아닌 전체 이자지급액 합계 확인에 "
+        "그쳤으며, 운영 이후 AI 오분류율을 점검하기 위한 별도 모니터링 기준도 마련되어 있지 않았다. 이에 따라 AI 판정결과가 고객별 "
+        "우대금리 적용에 반영되는 과정에서 오류를 조기에 탐지·차단할 수 있는 테스트, 변경관리, 검증 및 사후 모니터링 통제가 충분히 작동하지 않은 "
+        "것으로 확인되었다."
     ),
 }
 
@@ -944,13 +953,23 @@ def participant_confirmation_area(nickname):
 
     if mode == "write":
         st.info(CONFIRMATION_LAB["prompt"])
+        st.markdown(
+            """
+            **작성 가이드**
+            1. 사실관계 및 시스템 처리구조
+            2. 오류 발생 내용과 직접 원인
+            3. 테스트·변경관리·검증·모니터링 등 통제 미흡
+            4. 고객 영향
+            5. 확인 이후 중단·재산정·보완 등 조치사항
+            """
+        )
         existing = get_confirmation_response(nickname)
         prior = existing[0] if existing else ""
         answer = st.text_area(
-            "확인서 첫 2~3문장",
+            "확인서 전체 초안",
             value=prior,
-            height=180,
-            placeholder="사실관계 → 직접 원인 → 통제 미흡이 드러나도록 작성해 보세요.",
+            height=420,
+            placeholder="사실관계 → 직접 원인 → 통제 미흡 → 고객 영향 → 확인·조치사항의 흐름으로 전체 확인서를 작성해 보세요.",
             key="confirmation_answer",
         )
         if st.button(
@@ -1192,7 +1211,7 @@ def render_exercise_admin():
             st.success(f"Q{ex_id} 입력화면을 열었습니다.")
             st.rerun()
     with c2:
-        if st.button("💬 제출 종료 · 답안 보기", use_container_width=True, key="confirm_close_btn"):
+        if st.button("💬 작성 종료 · 답안 보기", use_container_width=True, key="confirm_close_btn"):
             set_exercise_state(ex_id, "review", "")
             st.success(f"Q{ex_id} 제출을 종료했습니다.")
             st.rerun()
@@ -1247,14 +1266,14 @@ def render_confirmation_admin():
 
     st.markdown("## 📝 마지막 실습 · FSS IT검사 확인서 작성")
     st.caption(
-        "수강생이 확인서 첫 2~3문장을 작성하고, 강사가 특정 답안을 닉네임과 함께 전체 화면에 공개합니다."
+        "수강생이 확인서 전체 초안을 작성하고, 강사가 특정 답안을 닉네임과 함께 전체 화면에 공개합니다."
     )
 
     st.info(CONFIRMATION_LAB["prompt"])
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        if st.button("▶ 확인서 실습 시작", type="primary", use_container_width=True, key="confirm_start_btn"):
+        if st.button("▶ 확인서 작성 시작", type="primary", use_container_width=True, key="confirm_start_btn"):
             set_state(0, "pre", "waiting")
             set_exercise_state(0, "waiting", "")
             set_confirmation_state("write", "")
@@ -1266,13 +1285,13 @@ def render_confirmation_admin():
             st.success("제출을 종료했습니다.")
             st.rerun()
     with c3:
-        if st.button("📘 강사 예시문 공개", use_container_width=True, key="confirm_sample_btn"):
+        if st.button("📘 강사 작성예시 공개", use_container_width=True, key="confirm_sample_btn"):
             current = get_confirmation_state()["spotlight_nickname"]
             set_confirmation_state("sample", current)
             st.success("강사 예시문을 공개했습니다.")
             st.rerun()
     with c4:
-        if st.button("⏸ 확인서 실습 대기", use_container_width=True, key="confirm_wait_btn"):
+        if st.button("⏸ 확인서 작성 대기", use_container_width=True, key="confirm_wait_btn"):
             set_confirmation_state("waiting", "")
             st.success("확인서 실습을 대기 상태로 전환했습니다.")
             st.rerun()
@@ -1285,7 +1304,7 @@ def render_confirmation_admin():
         st.caption("아직 제출된 답안이 없습니다.")
         return
 
-    df = pd.DataFrame(rows, columns=["닉네임", "확인서 답안", "제출시각"])
+    df = pd.DataFrame(rows, columns=["닉네임", "확인서 전체 초안", "제출시각"])
     st.dataframe(df, use_container_width=True, hide_index=True)
 
     names = [r[0] for r in rows]
