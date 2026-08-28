@@ -20,6 +20,14 @@ st.set_page_config(
 st.markdown(
     """
     <style>
+      /* Streamlit 기본 UI 흔적 최소화 */
+      #MainMenu {visibility: hidden;}
+      footer {visibility: hidden;}
+      header {visibility: hidden;}
+      div[data-testid="stToolbar"] {visibility: hidden; height: 0;}
+      div[data-testid="stDecoration"] {display: none;}
+      div[data-testid="stStatusWidget"] {display: none;}
+
       /* 노트북/프로젝터 화면에서 세로 공간을 절약 */
       .block-container {
           padding-top: 2.0rem;
